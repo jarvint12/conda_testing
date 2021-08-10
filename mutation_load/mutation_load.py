@@ -8,11 +8,14 @@ import re
 import csv
 import random
 import configparser
+import pkg_resources
 
-import regex_patterns
+from mutation_load.regex_patterns import regex_patterns
 
 parser=configparser.ConfigParser()
-parser.read(os.path.dirname(os.path.realpath(__file__))+'/mutation_load_config_atlas.ini') #Read config-file
+config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config_atlas.ini"))
+parser.read(config_path)
+#parser.read(os.path.dirname(os.path.realpath(__file__))+'/mutation_load_config_atlas.ini') #Read config-file
 samtools_location = parser.get('tools_and_envs','samtools') #Location for samtools
 bedtools_location = parser.get('tools_and_envs','bedtools') #Location for bedtools
 
@@ -689,22 +692,15 @@ def stream_command(values):
 def plot_cdf_function(cdf_file, values):
     """Uses R functions to plot the CDF function of read depths."""
     if values.bam_amount==1: #If there is only one file, plots different cumulative plot
-        print('Executing command \'Rscript '+ \
-        '/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R '+ \
-        cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg'")) #source '+r_env+' ;
-        os.system('Rscript '+ \
-        '/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R '+ \
-        cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg")) #Gives 1 so R program now to plot 1 file plot
+        r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
     else: #There are multiple files
-        print('Executing command \'Rscript '+ \
-        '/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R '+ \
-        cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ")\
-        + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg'"))
-
-        os.system('Rscript '+ \
-        '/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R '+ \
-        cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ")\
-        + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg")) #Gives 2 to program so it nows what to plot
+        r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
+    print('Executing command \'Rscript '+r_script+' '+ \
+            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ") \
+            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg'"))
+    os.system('Rscript '+r_script+' '+ \
+            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ")\
+            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg")) #Gives 2 to program so it nows what to plot
 
 
 def go_through_bam(values, report, writer, fnames, sample_id):

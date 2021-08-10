@@ -1,1 +1,1 @@
-name = 'mutation_load_tool'
+name = 'mutation_load'
