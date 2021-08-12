@@ -16,7 +16,7 @@ import pkg_resources
 from mutation_load.regex_patterns import regex_patterns
 
 parser=configparser.ConfigParser()
-config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config_atlas.ini"))
+config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
 parser.read(config_path)
 #parser.read(os.path.dirname(os.path.realpath(__file__))+'/mutation_load_config_atlas.ini') #Read config-file
 samtools_location = parser.get('tools_and_envs','samtools') #Location for samtools
