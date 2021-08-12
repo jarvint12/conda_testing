@@ -12,6 +12,7 @@ import random
 import configparser
 import pkg_resources
 
+#import regex_patterns
 from mutation_load.regex_patterns import regex_patterns
 
 parser=configparser.ConfigParser()
@@ -693,10 +694,13 @@ def stream_command(values):
 
 def plot_cdf_function(cdf_file, values):
     """Uses R functions to plot the CDF function of read depths."""
+    print(os.path.realpath(__file__))
     if values.bam_amount==1: #If there is only one file, plots different cumulative plot
         r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
+        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R'
     else: #There are multiple files
         r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
+        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R'
     print('Executing command \'Rscript '+r_script+' '+ \
             cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ") \
             + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg'"))

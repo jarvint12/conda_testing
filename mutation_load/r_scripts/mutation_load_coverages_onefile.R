@@ -1,5 +1,5 @@
-library("ggplot2")
-library(dplyr)
+library("ggplot2") #conda install -c r r-ggplot2
+library(dplyr) #conda install -c r r-dplyr
 library(scales)
 
 rm(list=ls())
