@@ -28,6 +28,6 @@ setuptools.setup(
             "Topic :: Scientific/Engineering :: Bio-Informatics"
         ],
         include_package_data=True,
-        package_data={'': ['mutation_load', 'resources/mutation_load_config_atlas.ini', 'r_scripts/mutation_load_coverages_onefile.R', 'r_scripts/mutation_load_coverages_multiple_files.R']},
+        package_data={'': ['mutation_load', 'resources/mutation_load_config.ini', 'r_scripts/mutation_load_coverages_onefile.R', 'r_scripts/mutation_load_coverages_multiple_files.R']},
 )
 
