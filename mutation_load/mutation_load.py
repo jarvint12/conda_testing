@@ -694,7 +694,8 @@ def stream_command(values):
 
 def plot_cdf_function(cdf_file, values):
     """Uses R functions to plot the CDF function of read depths."""
-    print(os.path.realpath(__file__))
+    print(os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R')
+    print(os.path.isfile(os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R'))
     if values.bam_amount==1: #If there is only one file, plots different cumulative plot
         r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
         #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R'
