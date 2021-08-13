@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
         name="mutation_load",
-        version="1.0.4111112",
+        version="1.0.4111114",
         author="Timo_Järvinen",
         author_email="neville160@gmail.com",
         description="VCF permutation tool",

@@ -17,11 +17,13 @@ import pkg_resources
 def package_repo_imports():
     """Makes imports and finds configuration file depending on if the file is run as a package or cloned from git."""
     global regex_patterns
-    if not os.path.isfile(os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'):
+    try:
+        from regex_patterns import regex_patterns
+    except ModuleNotFoundError:
         from mutation_load.regex_patterns import regex_patterns
+    if not os.path.isfile(os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'):
         config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
     else:
-        from regex_patterns import regex_patterns
         config_path=os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'
     return config_path
 
