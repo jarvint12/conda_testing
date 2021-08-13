@@ -16,9 +16,10 @@ import pkg_resources
 from mutation_load.regex_patterns import regex_patterns
 
 parser=configparser.ConfigParser()
-config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
+config_path=os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'
+if not os.path.isfile(config_path):
+    config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
 parser.read(config_path)
-#parser.read(os.path.dirname(os.path.realpath(__file__))+'/mutation_load_config_atlas.ini') #Read config-file
 samtools_location = parser.get('tools_and_envs','samtools') #Location for samtools
 bedtools_location = parser.get('tools_and_envs','bedtools') #Location for bedtools
 
@@ -694,13 +695,15 @@ def stream_command(values):
 
 def plot_cdf_function(cdf_file, values):
     """Uses R functions to plot the CDF function of read depths."""
-    print(os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R')
-    print(os.path.isfile(os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R'))
     if values.bam_amount==1: #If there is only one file, plots different cumulative plot
-        r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
+        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R'
+        if not os.path.isfile(r_script):
+            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
         #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R'
     else: #There are multiple files
-        r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
+        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_multiple_files.R'
+        if not os.path.isfile(r_script):
+            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
         #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R'
     print('Executing command \'Rscript '+r_script+' '+ \
             cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ") \
