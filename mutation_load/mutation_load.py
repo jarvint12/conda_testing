@@ -13,12 +13,20 @@ import configparser
 import pkg_resources
 
 #import regex_patterns
-from mutation_load.regex_patterns import regex_patterns
+#from mutation_load.regex_patterns import regex_patterns
+def package_repo_imports():
+    """Makes imports and finds configuration file depending on if the file is run as a package or cloned from git."""
+    global regex_patterns
+    if not os.path.isfile(os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'):
+        from mutation_load.regex_patterns import regex_patterns
+        config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
+    else:
+        from regex_patterns import regex_patterns
+        config_path=os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'
+    return config_path
 
+config_path=package_repo_imports()
 parser=configparser.ConfigParser()
-config_path=os.path.dirname(os.path.realpath(__file__))+'/resources/mutation_load_config.ini'
-if not os.path.isfile(config_path):
-    config_path=pkg_resources.resource_filename(__name__, os.path.join("resources", "mutation_load_config.ini"))
 parser.read(config_path)
 samtools_location = parser.get('tools_and_envs','samtools') #Location for samtools
 bedtools_location = parser.get('tools_and_envs','bedtools') #Location for bedtools
@@ -314,7 +322,6 @@ def count_vcf_mutations(values,vcf_files, prefix="temp"):
             if components[5]!="exonic" and values.skip_nonexon:
                 continue
             if not values.separate_regions:
-                print("TRUE???")
                 components[5]="useless"
             if len(components[3])>1 or components[4]=='-': #If variant is deletion
                 dels[len(components[3]),components[5]]+=1 #Add deletion's length, original base has already been removed
@@ -340,8 +347,6 @@ def count_vcf_mutations(values,vcf_files, prefix="temp"):
         if not values.keep_temp_files:
             os.system("rm "+anno_prefix+"*")
         f_anno.close()
-    print("tot_sum: "+str(tot_sum)+". SNV: "+str(snv)+". Dels:",dels,"Insertions:",insertions, "Synonymous: "+str(synonymous)+
-    ". Nonsynonymous: "+str(nonsynonymous)+". Not exonic:",not_exonic)
     return tot_sum, snv, dels, insertions, synonymous, nonsynonymous, not_exonic #Returns sums
 
 
@@ -572,7 +577,6 @@ def bed_genome_length(bed_file):
         for line in fr:
             columns=line.split()
             if len(columns)<3:
-                print("There were less than 3 columns in bed file "+bed_file+". Amount of columns was "+str(len(columns))+", and columns were",columns)
                 continue
             length=int(columns[2])-int(columns[1]) #0-based start 0A1A2T3C, 1-based end G=8, T=9, T=10...
             tot_length+=length
@@ -974,7 +978,7 @@ def optparsing():
     group = optparse.OptionGroup(optparser, "Output options",
                     "Define output directory and if you want to keep all temporal files for debugging.")
     group.add_option("--destination", dest="destination", help="Destination for cdf file, report, permutations etc. (--destination /path/to/directory).")
-    group.add_option("--plot_cdf", dest="plot_cdf", action="store_true", default=False, help="If you do not want CDF plot of read depths. Then you also need R packages ggplot2, dplyr, RColorBrewer and scales. Default: %default.")
+    group.add_option("--plot_cdf", dest="plot_cdf", action="store_true", default=False, help="If you do not want CDF plot of read depths. Default: %default.")
     group.add_option("--lbuffer", dest="lbuffer", default=821600, type="int", help="Maximum number of lines per generated vcf_file to save memory. Default is %default, which takes 3G memory with ANNOVAR.")
     group.add_option("--no_vcf_generate", dest="no_vcf_generate", action="store_true", default=False, help="If you do not want to generate VCF with all possible mutations. They are needed in permutation. Default: %default.")
     group.add_option("--keep_temp_files", dest="keep_temp_files",action="store_true", default=False, help="If you want to keep temporal anno files, generated VCF and temporal mutation files for debugging. Set True, if you have parallel runs to the same destination. Default: %default.")
