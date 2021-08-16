@@ -118,13 +118,13 @@ def create_indel(length):
     return random.choices(bases,k=length) #Randomly samples bases, k is insertion size minus reference base
 
 
-def make_indel(f_vcf, pair, region_lines, region_mutation_count, indels, insertion, mut_files_location):
+def permutate_insertion(f_vcf, pair, region_lines, region_mutation_count, insertions, mut_files_location):
     """Makes indel to permutated VCF.
 
     Depending on insertion argument, function permutates insertion or deletion to a permutated VCF file.
     Function uses files generated earlier, that contain all positions, that the original bam file covered.
     From a file, that contains positions from the same area as in pair[1] argument, function samples one line, to which it makes the indel."""
-    bases=['A','T','C','G'] #Different possible bases
+    #bases=['A','T','C','G'] #Different possible bases
     type=pair[1]
     if type in region_lines:
         lines=region_lines[type]
@@ -135,16 +135,12 @@ def make_indel(f_vcf, pair, region_lines, region_mutation_count, indels, inserti
         lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', region_mutation_count[type])
         region_lines[type]=lines
 
-    variant_list=random.choices(bases,k=pair[0]) #Randomly samples bases, k is insertion size minus reference base
+    #variant_list=random.choices(bases,k=pair[0]) #Randomly samples bases, k is insertion size minus reference base
     lines_to_remove=list()
     variant=None
-    for line in lines[0:indels[pair]]:#region_lines[type][0:indels[pair]]:
+    for line in lines[0:insertions[pair]]:#region_lines[type][0:indels[pair]]:
         columns=line.split()
-        if insertion:
-            variant=columns[2]+''.join(variant_list) #Add insertion to reference base to variant position
-        else:
-            variant=columns[2] #Variant is only the reference base
-            columns[2]=columns[2]+''.join(variant_list) #Add deletion to reference base
+        variant=columns[2]+''.join(create_indel(pair[0])) #Add insertion to reference base to variant position
         f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+variant+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
         lines_to_remove.append(line)
     for line in lines_to_remove:
@@ -222,9 +218,8 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
         type_mod=type_mod.replace(";", "_")
         sampled_lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', not_exonic[type]+region_mutation_count[type])
         region_lines[type]=write_permutated_lines(f_vcf, sampled_lines, not_exonic[type])
-    insertion=True
     for pair in insertions:
-        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, insertions, insertion, mut_files_location)
+        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, insertions, mut_files_location)
     #insertion=False
     #for pair in dels:
 #        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, dels, insertion, mut_files_location)
