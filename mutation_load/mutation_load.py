@@ -112,6 +112,12 @@ def write_permutated_lines(f_vcf, lines, type_amount):
         f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+columns[3]+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
     return lines[type_amount:]
 
+def create_indel(length):
+    """Permutates given length indel"""
+    bases=['A','T','C','G'] #Different possible bases
+    return random.choices(bases,k=length) #Randomly samples bases, k is insertion size minus reference base
+
+
 def make_indel(f_vcf, pair, region_lines, region_mutation_count, indels, insertion, mut_files_location):
     """Makes indel to permutated VCF.
 
@@ -146,6 +152,41 @@ def make_indel(f_vcf, pair, region_lines, region_mutation_count, indels, inserti
     return region_lines
 
 
+def remove_permutated_lines(file, string):
+    """Removes line containing given string from the given file"""
+    os.system("sed -i '/"+string+"/d' "+file)
+
+
+def permutate_dels(dels, mut_files_location, f_vcf):
+    """Permutates deletions from temp_mut_location files."""
+    sum_dels=sum(dels.values())
+    while sum_dels>0:
+        for type, length in dels:
+            if type==".":
+                type="dot"
+            type_mod=type.replace(";", "_")
+            lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', dels[(type,length)])
+            for line in lines:
+                columns=line.split()
+                chrom=columns[0]
+                pos=str(int(columns[1])-int(length)) #It doesn't matter if negative, because grep won't find it
+                p = subprocess.Popen(("grep -P '"+chrom+'/t'+pos+"' "+mut_files_location+'/*'), \
+                  shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) #Views file with header and captures output to stream
+                out, err = p.communicate()
+                if out.decode()=='': #Position is not covered with the given depth
+                    continue
+                columns=out.decode().split(':')
+                file, rest=columns[0], columns[1] #rest contains one line and next file separated by linebreak
+                line=rest.split('\n')[0]+'\n'
+                columns=line.split()
+                variant=columns[2] #Variant is only the reference base
+                columns[2]=columns[2]+''.join(create_indel(length))#Add deletion to reference base
+                f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+variant+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
+                for i in range(int(pos), int(pos)-int(length)+1):
+                    remove_permutated_lines(file, chrom+'/t'+str(i)) #Removes every possible line after the deletion.
+                dels[(type,length)]-=1
+        sum_dels=sum(dels.values())
+
 def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, synonymous, nonsynonymous, not_exonic, mut_files_location):
     """Permutates mutations for permutated VCF file.
 
@@ -154,6 +195,7 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
     For indel mutations, function uses make_indel function.
     Uses region_lines to keep count about lines that were not used and can be used later."""
     f_vcf = open(vcf_file,'a') #Opens vcf file for appending
+    permutate_dels(dels, mut_files_location, f_vcf)
     region_mutation_count=collections.Counter() #Keep count of how many different region mutations there are, so you can permutate right amount of lines
     for pair in dels: #Go through deletions
         region_mutation_count[pair[1]]+=dels[pair]
@@ -183,9 +225,9 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
     insertion=True
     for pair in insertions:
         region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, insertions, insertion, mut_files_location)
-    insertion=False
-    for pair in dels:
-        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, dels, insertion, mut_files_location)
+    #insertion=False
+    #for pair in dels:
+#        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, dels, insertion, mut_files_location)
 
     f_vcf.close()
 
