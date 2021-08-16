@@ -181,7 +181,9 @@ def permutate_dels(dels, mut_files_location, f_vcf):
                 line=rest.split('\n')[0]+'\n'
                 columns=line.split()
                 variant=columns[2] #Variant is only the reference base
-                columns[2]=columns[2]+''.join(create_indel(length))#Add deletion to reference base
+                variant_list=create_indel(length)
+                print(variant_list)
+                columns[2]=columns[2]+''.join(variant_list)#Add deletion to reference base
                 f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+variant+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
                 for i in range(int(pos), int(pos)-int(length)+1):
                     file, _ = find_file(mut_files_location, chrom+'\t'+str(i)+'\t')
