@@ -152,6 +152,15 @@ def remove_permutated_lines(file, string):
     """Removes line containing given string from the given file"""
     os.system("sed -i '/"+string+"/d' "+file)
 
+def find_file(location, string):
+    """Finds file that contains the given string from the given location."""
+    p = subprocess.Popen(("grep -P '"+string+"' "+location+'/*'), \
+      shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) #Views file with header and captures output to stream
+    out, err = p.communicate()
+    if out.decode()=='': #Position is not covered with the given depth
+        return None, None
+    columns=out.decode().split(':')
+    file, rest=columns[0], columns[1] #rest contains one line and next file separated by linebreak
 
 def permutate_dels(dels, mut_files_location, f_vcf):
     """Permutates deletions from temp_mut_location files."""
@@ -166,20 +175,17 @@ def permutate_dels(dels, mut_files_location, f_vcf):
                 columns=line.split()
                 chrom=columns[0]
                 pos=str(int(columns[1])-int(length)) #It doesn't matter if negative, because grep won't find it
-                p = subprocess.Popen(("grep -P '"+chrom+'/t'+pos+"' "+mut_files_location+'/*'), \
-                  shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) #Views file with header and captures output to stream
-                out, err = p.communicate()
-                if out.decode()=='': #Position is not covered with the given depth
+                file, rest=find_file(mut_files_location, chrom+'\t'+pos+'\t')
+                if file==None:
                     continue
-                columns=out.decode().split(':')
-                file, rest=columns[0], columns[1] #rest contains one line and next file separated by linebreak
                 line=rest.split('\n')[0]+'\n'
                 columns=line.split()
                 variant=columns[2] #Variant is only the reference base
                 columns[2]=columns[2]+''.join(create_indel(length))#Add deletion to reference base
                 f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+variant+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
                 for i in range(int(pos), int(pos)-int(length)+1):
-                    remove_permutated_lines(file, chrom+'/t'+str(i)) #Removes every possible line after the deletion.
+                    file, _ = find_file(mut_files_location, chrom+'\t'+str(i)+'\t')
+                    remove_permutated_lines(file, chrom+'\t'+str(i)+'\t') #Removes every possible line after the deletion.
                 dels[(type,length)]-=1
         sum_dels=sum(dels.values())
 
