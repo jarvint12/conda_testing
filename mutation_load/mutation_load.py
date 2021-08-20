@@ -55,8 +55,8 @@ def make_report(values):
         f.write("Counted average of numbers below the limit: "+str(values.lower)+'.\n') #Write, if average was counted below or above of limit
         if values.head!='': #If head argument was given
             f.write("Used argument head -n "+values.head+'.\n') #Writes used argument
-        if values.bed!='': #Checks if bed-file was given
-            f.write("Used bedfile "+values.bed+'.\n') #Writes used bed-file
+        if values.orig_bed!='': #Checks if bed-file was given
+            f.write("Used bedfile(s) ",values.orig_bed,'.\n') #Writes used bed-file
         if values.other_args!='': #Check if there were some other arguments given for samtools view
             f.write("Other samtools arguments used: "+values.other_args+'.\n') #Writes other samtools arguments used
 
@@ -78,7 +78,7 @@ def write_report_cdf(report,percent,word,current_number, tot_count):
             return
 
         if percent==0: #If current number is first one and larger than 1 (different formatting if number is 1 and function goes upwards in numbers)
-            f.write("0%  of covered genomic positions have "+word+" than "+current_number+" reads covering site.\n") #Write how many percent has only 1 read
+            f.write("0%  of covered genomic positions have "+word+" than "+str(current_number)+" reads covering site.\n") #Write how many percent has only 1 read
         elif current_number==1 and word=="less": #If current number is 1 and program is going upwards, 1 must be the first number when occuring. Percent is already changed.
             f.write('{:.2f}'.format(100*percent)+"% ("+str(tot_count)+" pcs.) of covered genomic positions have 1 read covering site.\n") #Write how many percent has only 1 read
         else: #Current number is not the first one
@@ -137,7 +137,6 @@ def permutate_insertion(f_vcf, pair, region_lines, region_mutation_count, insert
 
     #variant_list=random.choices(bases,k=pair[0]) #Randomly samples bases, k is insertion size minus reference base
     lines_to_remove=list()
-    variant=None
     for line in lines[0:insertions[pair]]:#region_lines[type][0:indels[pair]]:
         columns=line.split()
         variant=columns[2]+''.join(create_indel(pair[0])) #Add insertion to reference base to variant position
@@ -160,35 +159,63 @@ def find_file(location, string):
     if out.decode()=='': #Position is not covered with the given depth
         return None, None
     columns=out.decode().split(':')
-    file, rest=columns[0], columns[1] #rest contains one line and next file separated by linebreak
+    if len(columns<2):
+        raise RuntimeError("Grep failed with command grep -P '"+string+"' "+location+"/*. Columns: ",columns)
+    return columns[0], columns[1] #rest contains one line and next file separated by linebreak
 
-def permutate_dels(dels, mut_files_location, f_vcf):
+def count_file_lines(file):
+    """Counts line count of the given file."""
+    line_sum=0
+    with open(file, 'r') as fr:
+        for line in fr:
+            line_sum+=1
+    return line_sum
+
+def get_syn_nonsyn_lines(mut_files_location, tot_amount):
+    """Samples exonic lines from nonsynonymous and synonymous temp_perm_files"""
+    wc_syn=count_file_lines(mut_files_location+'/perm_exon_syno.txt')
+    wc_nonsyn=count_file_lines(mut_files_location+'/perm_exon_nonsyno.txt')
+    if wc_syn>wc_nonsyn:
+        amount_nonsyn=random.sample(range(max(0,tot_amount-wc_syn), min(wc_nonsyn,tot_amount)+1),1)[0]
+        amount_syn=tot_amount-amount_nonsyn
+    else:
+        amount_syn=random.sample(range(max(0,tot_amount-wc_nonsyn), min(wc_syn,tot_amount)+1),1)[0]
+        amount_nonsyn=tot_amount-amount_syn
+    lines=sample_lines_from_file(mut_files_location+'/perm_exon_syno.txt', amount_syn)
+    lines+=sample_lines_from_file(mut_files_location+'/perm_exon_nonsyno.txt', amount_nonsyn)
+    return lines
+
+
+def permutate_dels(values, dels, mut_files_location, f_vcf):
     """Permutates deletions from temp_mut_location files."""
     sum_dels=sum(dels.values())
     while sum_dels>0:
-        for type, length in dels:
+        for length, type in dels:
             if type==".":
                 type="dot"
             type_mod=type.replace(";", "_")
-            lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', dels[(type,length)])
+            if type=="exonic" and values.separate_syn:
+                lines=get_syn_nonsyn_lines(mut_files_location, dels[length, type])
+            else:
+                lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', dels[length, type])
             for line in lines:
                 columns=line.split()
                 chrom=columns[0]
-                pos=str(int(columns[1])-int(length)) #It doesn't matter if negative, because grep won't find it
+                #pos=str(int(columns[1])-int(length)) #It doesn't matter if negative, because grep won't find it
+                pos=str(int(columns[1])-1) #It doesn't matter if negative, because grep won't find it
                 file, rest=find_file(mut_files_location, chrom+'\t'+pos+'\t')
                 if file==None:
                     continue
                 line=rest.split('\n')[0]+'\n'
                 columns=line.split()
-                variant=columns[2] #Variant is only the reference base
                 variant_list=create_indel(length)
-                print(variant_list)
+                variant=columns[2] #Variant is only the reference base
                 columns[2]=columns[2]+''.join(variant_list)#Add deletion to reference base
                 f_vcf.write(columns[0]+'\t'+columns[1]+'\t.\t'+columns[2]+'\t'+variant+'\t.\t.\t.\tGT\t0/1\n') #Write to vcf file
-                for i in range(int(pos), int(pos)-int(length)+1):
+                for i in range(int(pos)-1, int(pos)+int(length)):
                     file, _ = find_file(mut_files_location, chrom+'\t'+str(i)+'\t')
                     remove_permutated_lines(file, chrom+'\t'+str(i)+'\t') #Removes every possible line after the deletion.
-                dels[(type,length)]-=1
+                dels[length,type]-=1
         sum_dels=sum(dels.values())
 
 def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, synonymous, nonsynonymous, not_exonic, mut_files_location):
@@ -199,7 +226,7 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
     For indel mutations, function uses make_indel function.
     Uses region_lines to keep count about lines that were not used and can be used later."""
     f_vcf = open(vcf_file,'a') #Opens vcf file for appending
-    permutate_dels(dels, mut_files_location, f_vcf)
+    permutate_dels(values, dels, mut_files_location, f_vcf)
     region_mutation_count=collections.Counter() #Keep count of how many different region mutations there are, so you can permutate right amount of lines
     for pair in dels: #Go through deletions
         region_mutation_count[pair[1]]+=dels[pair]
@@ -213,7 +240,7 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
             sampled_lines=sample_lines_from_file(mut_files_location+"/perm_exon_nonsyno.txt", nonsynonymous+region_mutation_count["exonic"])
             region_lines["exonic"]=region_lines["exonic"]+write_permutated_lines(f_vcf, sampled_lines, nonsynonymous)
         else:
-            sampled_lines=sample_lines_from_file(mut_files_location+'/perm_exon.txt', snv+region_mutation_count["exonic"])
+            sampled_lines=sample_lines_from_file(mut_files_location+'/exonic.txt', snv+region_mutation_count["exonic"])
             region_lines["exonic"]=write_permutated_lines(f_vcf, sampled_lines, snv)
     else:
         sampled_lines=sample_lines_from_file(mut_files_location+'/perm_snv.txt', tot_sum)
@@ -227,7 +254,7 @@ def create_permutated_vcf(values, vcf_file, tot_sum, snv, dels, insertions, syno
         sampled_lines=sample_lines_from_file(mut_files_location+'/'+type_mod+'.txt', not_exonic[type]+region_mutation_count[type])
         region_lines[type]=write_permutated_lines(f_vcf, sampled_lines, not_exonic[type])
     for pair in insertions:
-        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, insertions, mut_files_location)
+        region_lines=permutate_insertion(f_vcf, pair, region_lines, region_mutation_count, insertions, mut_files_location)
     #insertion=False
     #for pair in dels:
 #        region_lines=make_indel(f_vcf, pair, region_lines, region_mutation_count, dels, insertion, mut_files_location)
@@ -264,7 +291,7 @@ def make_perm_mut_files(values, anno_file, index, timestamp):
         f_syn=open(location+'/perm_exon_syno.txt', 'a+')
         f_nonsyn=open(location+'/perm_exon_nonsyno.txt', 'a+')
     else:
-        f_exon=open(location+'/perm_exon.txt', 'a+')
+        f_exon=open(location+'/exonic.txt', 'a+')
     f_anno=open(anno_file, 'r')
     f_anno_lines=f_anno.readlines()
     for line in f_anno_lines[1:]: #Reads stdout line by line, skips header
@@ -280,10 +307,8 @@ def make_perm_mut_files(values, anno_file, index, timestamp):
                 if values.separate_syn:
                     if components[8]=='synonymous':
                         write_temp_mut_line(f_syn, line)
-                        #f_syn.write(line)
                     elif components[8]=='nonsynonymous':
                         write_temp_mut_line(f_nonsyn, line)
-                        #f_nonsyn.write(line)
                     else:
                         if not components[8] in not_exonic:
                             not_exonic[components[8]]=list()
@@ -369,7 +394,7 @@ def count_vcf_mutations(values,vcf_files, prefix="temp"):
             if components[5]!="exonic" and values.skip_nonexon:
                 continue
             if not values.separate_regions:
-                components[5]="useless"
+                components[5]="perm_snv"
             if len(components[3])>1 or components[4]=='-': #If variant is deletion
                 dels[len(components[3]),components[5]]+=1 #Add deletion's length, original base has already been removed
             elif len(components[4])>1 or components[3]=='-': #If variant is insertion
@@ -531,11 +556,10 @@ def compare_one_number(file, numbers_tot, count, more, number, report):
         f.write('{:.2f}'.format(100*percent)+"% ("+str(tot_count)+" pcs.) of "+str(numbers_tot)+" covered genomic positions have "+word+" than "+str(number)+" reads covering site.\n")
 
 
-def config_intervals(number):
+def config_intervals(values, number):
     """Gets the configuration intervals for the CDF plot."""
-    intervals = parser.items("legend_intervals") #Gets all intervals from config-file
     last_interval=0 #Initializes last interval
-    for key, interval in intervals: #Runs over all the intervals in the config file
+    for interval in values.plot_intervals: #Runs over all the intervals in the config file
         if number<int(interval): #if number is smaller than the interval
             next_interval=int(interval)
             break #Breaks so last_interval is the last number is greater or equal to
@@ -545,7 +569,7 @@ def config_intervals(number):
     return last_interval, next_interval #Return last interval that number was greater or equal to
 
 
-def cdf_function(values, numbers_tot, count, report, writer, fnames, genome_size):
+def cdf_function(values, numbers_tot, count, report, writer, fnames, genome_size, bam_file):
     """Counts the CDF function of the read depths of given file"""
     percent=0 #Count cumulative percent for number of lines
     percent_printed=0 #Keep count what was the last percent that was printed
@@ -553,7 +577,7 @@ def cdf_function(values, numbers_tot, count, report, writer, fnames, genome_size
     tot_sum=sum(count.values()) #Sum of total mapped reads
     current_number=-1 #Initialize current number, so program knows if there was not any in the collection
     word="less" #Initialize word
-    sample_id=separate_sample_id(values, values.bam)
+    sample_id=separate_sample_id(values, bam_file)
     next_interval=0
     while bool(count): #Goes through every number in the collection
         if values.reverse: #If user wants CDF-function to be counted from largest to smallest
@@ -567,7 +591,7 @@ def cdf_function(values, numbers_tot, count, report, writer, fnames, genome_size
             write_report_cdf(report,percent,word,current_number, tot_count) #Writes report with 0 percent, current number already differs from -1
         tot_count+=amount_of_number #Add amount of current number to the total count
         if current_number>=next_interval:
-            plot_interval, next_interval=config_intervals(current_number)
+            plot_interval, next_interval=config_intervals(values, current_number)
         writer.writerow({fnames[0]: sample_id, fnames[1] : current_number, fnames[2]: amount_of_number, fnames[3]: tot_count, fnames[4]: amount_of_number/genome_size, \
         fnames[5]: plot_interval})
         percent+=amount_of_number/numbers_tot #Add percent of the current number to the total percent
@@ -657,69 +681,44 @@ def check_in_bedregion(values, components):
     return False #Position was not in area
 
 
-def stream_line_by_line(stream, values, report, sample_id):
+def stream_line_by_line(stream, values, report, sample_id, bam_file):
     """Goes given stream through line by line.
 
     Writes positions, that are covered with given limits to the coverages file.
     In addition, creates all possible three mutations for these positions.
     Also, writes read depths to the CDF file in amounts and percents compared to the reference genome."""
-    undersized_count=0 #Initializes how many numbers are below the limit
-    tot_average_sum=0 #Initializes total sum of reads more or less than given limit
-    tot_average_count=0 #Initializes how many genomic positions have reads more or less than given limit
-    limit=values.limit #Saves given limit
-    lower=values.lower #Saves if user wants average of reads less or more than given limit
-    lines_tot=0 #Count total number of genoic positions covered
     current_vcf_lines=-1
     index=0
-    count = collections.Counter() #Make collection to store different numbers of reads and how many lines had certain amount of reads
-    coverages=values.destination+'/'+separate_sample_id(values, values.bam)+"_coverages.txt" #Create coverages file
+    coverages=values.destination+'/'+separate_sample_id(values, bam_file)+"_coverages.txt" #Create coverages file
     f_cov = open(coverages, "w+")
-    f_cov.write("Here are genomic positions from file "+values.bam+". Made "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+'\n')
+    f_cov.write("Here are genomic positions from file "+bam_file+". Made "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+'\n')
     f_cov.write("Chr\tPos\tRef. base\tTotal depth\tForward depth\tReverse depth"+'\n')
-    f_vcf=None
     generated_vcf=list()
-    start_time2 = time.time()
     for line in stream.stdout: #Reads stdout line by line
         components = line.decode('utf-8').split() #Decodes line values and separate them
         if len(components) != 6 or int(components[3])==0: #If line isn't about reads or there are 0 reads covering site, it is skipped
             continue #Moves to next line
-        if values.bed!='':
+        if values.orig_bed!='':
             if not check_in_bedregion(values, components):
                 continue
-        if (current_vcf_lines==-1 or current_vcf_lines>values.lbuffer) and sample_id!=None:
-            if f_vcf!=None:
+        if current_vcf_lines==-1 or current_vcf_lines>values.lbuffer:
+            if current_vcf_lines!=-1:
                 f_vcf.close()
             new_vcf=values.vcf_location_sample+'/'+sample_id+"_generated_"+str(index)+".vcf"
             f_vcf=open(new_vcf, 'a+') #Name for that vcf file of that bam file
             generated_vcf.append(new_vcf) #Add coverages file's new vcf file to all vcf files, 'a')
             index+=1
             current_vcf_lines=0
-        components = line.decode('utf-8').split() #Decodes line values and separate them
-
         if write_coverages_and_vcf_files(components, f_cov, f_vcf, values):
             current_vcf_lines+=3 #Count line to total lines written to generated VCF
-        lines_tot+=1
-        number = float(components[3]) #Fourth value contains number of reads covering site
-        if number<limit: #If current number is smaller than given limit
-            undersized_count+=1 #Amount of numbers below the limit increasees
-        if lower and number<limit or not lower and number>limit: #If number is above or below (depending on the user) from given limit
-            tot_average_sum+=number #Amount of reads covering site is added to total sum of numbers differing from the limit
-            tot_average_count+=1 #Add position to differing positions
-        count[number] += 1 #Count for that amount of reads covering site is added with one. Easy way to save numbers and their amount
-    if lines_tot==0: #If there were no reads covering site and ignore=False (We are interested in the data)
-        with open(report,'a') as f: #Open program report
-            f.write("No reads covering sites were found.\n")
-    else: #There were reads over 0 found, information is written to the report
-        write_report_averages_and_limits(report, limit, undersized_count, lines_tot, tot_average_count, tot_average_sum, lower) #Writes to the report with function
-
     f_cov.close()
     if f_vcf!=None:
         f_vcf.close()
-    return lines_tot, count, generated_vcf #Returns total number of genomic positions and collection of numbers and their amounts.
+    return generated_vcf #Returns total number of genomic positions and collection of numbers and their amounts.
 
 
 
-def stream_command(values):
+def stream_command(values, bam_file):
     """Makes the stream command with given values and opens the stream"""
     if values.include!=' ': #If there are flags that should be included
         include=' -f '+values.include+' ' #Makes included flags to right format for the stream
@@ -729,60 +728,25 @@ def stream_command(values):
         head = "|head -n "+values.head #Make head to right format for the stream
     else:
         head=''
-    if values.bed!='': #If there is a given bed-file
+    if values.orig_bed!='': #If there is a given bed-file
         bed_command=' -L '+values.bed+' ' #Make bed command
     else:
         bed_command=''
     #if not reverse:
-    stream = subprocess.Popen((samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+values.bam+' | '+samtools_location+' mpileup \
+    stream = subprocess.Popen((samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+bam_file+' | '+samtools_location+' mpileup \
       --ff 0 - -f '+values.reference+head), \
       shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) #Open stream, first runs bedtools if given, then pipes it to samtools view. Finaly pipes everything to mpileup
 
-    print("Executing command \'"+samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+values.bam+' | '+samtools_location+' mpileup \
+    print("Executing command \'"+samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+bam_file+' | '+samtools_location+' mpileup -A -Q 0 \
     --ff 0 - -f '+values.reference+head+"'")
 
     return stream #Returns stream to further use
 
 
-def plot_cdf_function(cdf_file, values):
-    """Uses R functions to plot the CDF function of read depths."""
-    if values.bam_amount==1: #If there is only one file, plots different cumulative plot
-        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R'
-        if not os.path.isfile(r_script):
-            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
-        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R'
-    else: #There are multiple files
-        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_multiple_files.R'
-        if not os.path.isfile(r_script):
-            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
-        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R'
-    print('Executing command \'Rscript '+r_script+' '+ \
-            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ") \
-            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg'"))
-    os.system('Rscript '+r_script+' '+ \
-            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ")\
-            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg")) #Gives 2 to program so it nows what to plot
-
-
-def go_through_bam(values, report, writer, fnames, sample_id):
+def go_through_bam(values, report, sample_id, bam_file):
     """Calls for stream_command-function, passes returned stream to stream_line_by_line function, counts genome size with whole_genome_length-function and returns numbers_tot and count"""
-    stream=stream_command(values) #Get stream from stream_command
-    numbers_tot, count, generated_vcf  =  stream_line_by_line(stream, values, report, sample_id) #Get total numbers and collection of different amount of reads covering sites from function.
-
-    with open(report,'a') as f: #Opens program report for writing
-        if values.bed=='': #Doesn't count whole genome length if bed was given
-            genome_size=whole_genome_length(values.bam) #Get size of the whole reference genome with function
-            f.write("The total length of the genome is "+str(genome_size)+" base pairs.\n") #Write how large the total genome is
-        else:
-            genome_size=bed_genome_length(values.bed)
-            f.write("The total length of the BED file is "+str(genome_size)+" base pairs.\n") #Write how large the total genome is
-        if genome_size>0:
-            f.write(str(genome_size-numbers_tot)+" genomic positions ("+str(100*(genome_size-numbers_tot)/genome_size)+"%) were not covered with given filters.\n") #Write how many genomic positions were covered with file
-
-    if values.number: #If user gave number that other reads covering site amounts should be compared to
-        compare_one_number(values.bam, numbers_tot, count, values.more, values.number, report) #Compare other numbers to that one
-    else: #User wants traditional CDF-function
-        cdf_function(values, numbers_tot, count, report, writer, fnames, genome_size) #Writes CDF-function about different amount of reads covering sites
+    stream=stream_command(values, bam_file) #Get stream from stream_command
+    generated_vcf=stream_line_by_line(stream, values, report, sample_id, bam_file) #Get total numbers and collection of different amount of reads covering sites from function.
     return generated_vcf
 
 
@@ -813,34 +777,34 @@ def continue_permutation(values):
 
 def make_bed_command(values):
     """Makes bed command for samtools view"""
-    beds_splitted = values.bed.split() #Separates different bed files
+    beds_splitted = values.orig_bed.split() #Separates different bed files
     i=0 #Iterator for different bed files
     timestamp=datetime.now().strftime("%Y%m%dT%H%M%S")
     final_bed=values.destination+'/temp_bed_sorted_merged_expanded_'+values.bed_prefix+timestamp+'.bed'
     values.bed_regions=dict() #Memorizes all the bed regions, so later non-bed regions wont be counted
     for bed in beds_splitted: #For there is bed file
-        print("Executing command '"+bedtools_location+' sort -i '+bed+' > temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed\'')
-        os.system(bedtools_location+' sort -i '+bed+' > temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed') #Sorts bed file
-        print("Executing command '"+bedtools_location+' sort -i '+bed+' > temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed\'')
-        os.system(bedtools_location+' merge -i temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed > temp_bed_sorted_merged'+str(i)+'_'+values.bed_prefix+timestamp+'.bed') #Merges bed file
-        print("Removing temp_bed_sorted files.")
-        os.remove(os.getcwd()+"/temp_bed_sorted_"+values.bed_prefix+timestamp+".bed") #Removes temp sorted bed file
+        print("Executing command '"+bedtools_location+' sort -i '+bed+' > '+values.destination+'/temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed\'')
+        os.system(bedtools_location+' sort -i '+bed+' > '+values.destination+'/temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed') #Sorts bed file
+        print("Executing command '"+bedtools_location+' sort -i '+bed+' > '+values.destination+'/temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed\'')
+        os.system(bedtools_location+' merge -i temp_bed_sorted_'+values.bed_prefix+timestamp+'.bed > '+values.destination+'/temp_bed_sorted_merged'+str(i)+'_'+values.bed_prefix+timestamp+'.bed') #Merges bed file
+        print("Removing "+values.destination+"/temp_bed_sorted file.")
+        os.remove(values.destination+"/temp_bed_sorted_"+values.bed_prefix+timestamp+".bed") #Removes temp sorted bed file
         i+=1 #Increases index
     if i>1: #If there were more than 1 bed file
         j=1 #another index
-        string=bedtools_location+" intersect -a temp_bed_sorted_merged0_"+values.bed_prefix+timestamp+".bed -b " #Initialize intersect command with first bed file
+        string=bedtools_location+" intersect -a "+values.destination+"/temp_bed_sorted_merged0_"+values.bed_prefix+timestamp+".bed -b " #Initialize intersect command with first bed file
         while j<i: #While there is a bedfile
-            string+='temp_bed_sorted_merged'+str(j)+'_'+values.bed_prefix+timestamp+'.bed ' #Add bed file to intersect command
+            string+=values.destination+'/temp_bed_sorted_merged'+str(j)+'_'+values.bed_prefix+timestamp+'.bed ' #Add bed file to intersect command
             j+=1 #Increase index
-        os.system(string+'> temp_bed_intersect_'+values.bed_prefix+timestamp+'.bed') #Store output to single bed file
-        os.system(bedtools_location+"  merge -i temp_bed_intersect_"+values.bed_prefix+timestamp+".bed > temp_bed_intersect_merged_"+values.bed_prefix+timestamp+".bed") #Merge output bed file
-        os.remove(os.getcwd()+"/temp_bed_intersect_"+values.bed_prefix+timestamp+".bed") #Remove original intersect file
+        os.system(string+'> '+values.destination+'/temp_bed_intersect_'+values.bed_prefix+timestamp+'.bed') #Store output to single bed file
+        os.system(bedtools_location+"  merge -i "+values.destination+"/temp_bed_intersect_"+values.bed_prefix+timestamp+".bed > "+values.destination+"/temp_bed_intersect_merged_"+values.bed_prefix+timestamp+".bed") #Merge output bed file
+        os.remove(values.destination+"/temp_bed_intersect_"+values.bed_prefix+timestamp+".bed") #Remove original intersect file
         j=0 #Initialize index
         while j<i: #Remove all single merged bed files
-            os.remove(os.getcwd()+"/temp_bed_sorted_merged"+str(j)+"_"+values.bed_prefix+timestamp+".bed")
+            os.remove(values.destination+"/temp_bed_sorted_merged"+str(j)+"_"+values.bed_prefix+timestamp+".bed")
             j+=1
-        os.rename(os.getcwd()+'/temp_bed_intersect_merged_'+values.bed_prefix+timestamp+'.bed',os.getcwd()+'/temp_bed_sorted_merged0_'+values.bed_prefix+timestamp+'.bed') #Rename intersect file to default file
-    with open(os.getcwd()+'/temp_bed_sorted_merged0_'+values.bed_prefix+timestamp+'.bed', 'r') as fr:
+        os.rename(values.destination+'/temp_bed_intersect_merged_'+values.bed_prefix+timestamp+'.bed',values.destination+'/temp_bed_sorted_merged0_'+values.bed_prefix+timestamp+'.bed') #Rename intersect file to default file
+    with open(values.destination+'/temp_bed_sorted_merged0_'+values.bed_prefix+timestamp+'.bed', 'r') as fr:
         with open(final_bed, 'w+') as fw:
             for line in fr:
                 columns=line.split()
@@ -857,6 +821,7 @@ def make_bed_command(values):
                 values.bed_regions[columns[0]].append((start,end))
                 i+=1
                 fw.write('\n')
+    os.system("rm "+values.destination+'/temp_bed_sorted_merged0_'+values.bed_prefix+timestamp+'.bed')
     values.bed=final_bed
     return values #Return values with bed file added
     #return ' -L temp_bed_sorted_merged0.bed ' #Return command
@@ -869,45 +834,139 @@ def create_gen_vcf_folder(values, bam_file):
         raise RuntimeError("No sample_id for file "+bam_file)
     if not os.path.isdir(values.destination+'/generated_vcf'):
         os.mkdir(values.destination+'/generated_vcf')
+    gen_vcf_location=values.destination+'/generated_vcf/'+sample_id
     if not os.path.isdir(values.destination+'/generated_vcf/'+sample_id):
-        gen_vcf_location=values.destination+'/generated_vcf/'+sample_id
         os.mkdir(gen_vcf_location)
-        values.vcf_location_sample=gen_vcf_location
+    values.vcf_location_sample=gen_vcf_location
     return values, sample_id
 
-def start_from_beginning(values):
+def start_permutation(values, report):
     """Starts permutation from the beginning, counterpart for continue_permutation()."""
-    report=make_report(values) #Function makes the program report
-    if values.bed!='':
+    if values.orig_bed!='':
         values=make_bed_command(values)
-    bam_files=values.bam #Add all bam files to bam_files variable so values.bam name can be changed on line 585
     generated_vcf_files=list() #Add all generated vcf files for vcf permutation
-    if not values.number: #User wants CDF from all reads
-        csv_file=values.destination+datetime.now().strftime("/"+values.prefix+"_cdf.%Y%m%dT%H%M%S.csv") #Make csv file for plotting
-        csv_opened = open(csv_file, 'w+') #Open csv file for writing
-        fnames=['bam_file', 'number_of_reads', 'amount_of_number', 'cumulative_sum', 'percent', 'interval'] #Make column names
-        writer = csv.DictWriter(csv_opened, fieldnames=fnames) #Writer for csv writing
-        writer.writeheader() #Write csv header
-    for bam in bam_files: #Go through every file
+    for bam in values.bam: #Go through every file
         if not os.path.isfile(bam): #If bam does not exist
             raise RuntimeError("Could not find bam file "+bam+' from directory '+os.getcwd()+'.\n') #Raises error
         with open(report, 'a') as f:
-            f.write("\nCounting reads covering sites in bam file "+bam+'.\n')
-        values.bam=bam #Save current bam file to values.bam
-        if not values.no_vcf_generate:
-            values, sample_id=create_gen_vcf_folder(values, bam)
-        else:
-            sample_id=None
-        generated_vcf=go_through_bam(values, report, writer, fnames, sample_id) #Gets total amount of genomic positions in the file, makes CDF and returns coverages file
+            f.write("\nGenerating VCF files for bam file "+bam+'.\n')
+        values, sample_id=create_gen_vcf_folder(values, bam)
+        generated_vcf=go_through_bam(values, report, sample_id, bam) #Gets total amount of genomic positions in the file, makes CDF and returns coverages file
         generated_vcf_files.append(generated_vcf) #Add coverages file's new vcf file to all vcf files
-    if not values.number: #Went to for loop above: must close csv file and plot it
-        csv_opened.close() #Closes csv file
-        if values.plot_cdf:
-            plot_cdf_function(csv_file, values) #Plots CDF function with R
-    if not values.skip_perm: #If user has given vcf file
-        permutate_vcf(values, generated_vcf_files, report) #Creates new vcf file with last coverage file
-    #if values.bed!='':
-#        os.system("rm "+values.bed)
+    permutate_vcf(values, generated_vcf_files, report) #Creates new vcf file with last coverage file
+
+
+def plot_cdf_function(cdf_file, values):
+    """Uses R functions to plot the CDF function of read depths."""
+    if values.bam_amount==1: #If there is only one file, plots different cumulative plot
+        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_onefile.R'
+        if not os.path.isfile(r_script):
+            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_onefile.R"))
+        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_onefile.R'
+    else: #There are multiple files
+        r_script=os.path.dirname(os.path.realpath(__file__))+'/r_scripts/mutation_load_coverages_multiple_files.R'
+        if not os.path.isfile(r_script):
+            r_script=pkg_resources.resource_filename(__name__, os.path.join("r_scripts", "mutation_load_coverages_multiple_files.R"))
+        #r_script='/csc/mustjoki2/variant_move/epi_ski/hus_hematology/Timo/bachelor_thesis/mutation_permutation_tool/mutation_load_coverages_multiple_files.R'
+    print('Executing command \'Rscript '+r_script+' '+ \
+            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ") \
+            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg'"))
+    os.system('Rscript '+r_script+' '+ \
+            cdf_file+datetime.now().strftime(" "+values.destination+"/"+values.prefix+"_cdf_%Y%m%dT%H%M%S.jpg ")\
+            + datetime.now().strftime(values.destination+"/"+values.prefix+"_cdf_zoomed_%Y%m%dT%H%M%S.jpg")) #Gives 2 to program so it nows what to plot
+
+
+def write_csv_file(values, report, bam_file, sample_id, dp_file, csv_file, fnames, writer):
+    """Writes CSV file of the read depths"""
+    count=collections.Counter()
+    tot_covered=0
+    undersized_count=0 #Initializes how many numbers are below the limit
+    tot_average_sum=0 #Initializes total sum of reads more or less than given limit
+    tot_average_count=0 #Initializes how many genomic positions have reads more or less than given limit
+    with open(dp_file, 'r') as fr:
+        for line in fr:
+            columns=line.strip().split()
+            amount=int(columns[0])
+            read_depth=int(columns[1])
+            if read_depth==0:
+                continue
+            count[read_depth]=amount
+            tot_covered+=amount
+            if read_depth<values.limit:
+                undersized_count+=1 #Amount of numbers below the limit increasees
+            if values.lower and read_depth<values.limit or not values.lower and read_depth>values.limit: #If number is above or below (depending on the user) from given limit
+                tot_average_sum+=read_depth*amount #Amount of reads covering sites is added to total sum of numbers differing from the limit
+                tot_average_count+=amount #Add position to differing positions
+    if tot_covered==0: #If there were no reads covering site and ignore=False (We are interested in the data)
+        with open(report,'a') as f: #Open program report
+            f.write("No reads covering sites were found.\n")
+    else: #There were reads over 0 found, information is written to the report
+        write_report_averages_and_limits(report, values.limit, undersized_count, tot_covered, tot_average_count, tot_average_sum, values.lower) #Writes to the report with function
+    tot_genomic_positions=get_genome_size(values, report, bam_file, tot_covered)
+    if values.number: #If user gave number that other reads covering site amounts should be compared to
+        compare_one_number(bam_file, tot_covered, count, values.more, values.number, report) #Compare other numbers to that one
+    else: #User wants traditional CDF-function
+        cdf_function(values, tot_covered, count, report, writer, fnames, tot_genomic_positions, bam_file)
+
+
+def get_genome_size(values, report, bam_file, tot_covered):
+    """Gets the size of the whole genome and writes the report."""
+    with open(report,'a') as f: #Opens program report for writing
+        if values.orig_bed=='': #Doesn't count whole genome length if bed was given
+            genome_size=whole_genome_length(bam_file) #Get size of the whole reference genome with function
+            f.write("The total length of the genome is "+str(genome_size)+" base pairs.\n") #Write how large the total genome is
+        else:
+            genome_size=bed_genome_length(bam_file)
+            f.write("The total length of the BED file is "+str(genome_size)+" base pairs.\n") #Write how large the total genome is
+        if genome_size>0:
+            f.write(str(genome_size-tot_covered)+" genomic positions ("+str(100*(genome_size-tot_covered)/genome_size)+"%) were not covered with given filters.\n") #Write how many genomic positions were covered with file
+    return genome_size
+
+def create_cdf_writer(values):
+    """Creates csv file and writer to it."""
+    currentDT=datetime.now()
+    csv_file=values.destination+'/'+values.prefix+currentDT.strftime("_cdf_%Y%m%dT%H%M%S.csv")
+    csv_stream = open(csv_file, 'w+') #Open csv file for writing
+    fnames=['bam_file', 'number_of_reads', 'amount_of_number', 'cumulative_sum', 'percent', 'interval'] #Make column names
+    writer = csv.DictWriter(csv_stream, fieldnames=fnames) #Writer for csv writing
+    writer.writeheader() #Write csv header
+    return csv_file, csv_stream, fnames, writer
+
+
+def make_cdf_plot(values, report):
+    """Makes CDF plot of the given bam files and writes the CDF to the report."""
+    csv_file, csv_stream, fnames, writer = create_cdf_writer(values)
+    if values.orig_bed!='':
+        values=make_bed_command(values)
+    for bam_file in values.bam:
+        with open(report, 'a') as f:
+            f.write("\nCounting reads covering sites in bam file "+bam_file+'.\n')
+        sample_id=separate_sample_id(values, bam_file)
+        prefix=values.destination+'/'+values.prefix+datetime.now().strftime("_%Y%m%dT%H%M%S_")+sample_id
+        bed_command=''
+        if values.orig_bed!='':
+            bed_command="-L "+values.bed+' '
+        if values.include!=' ': #If there are flags that should be included
+            include=' -f '+values.include+' ' #Makes included flags to right format for the stream
+        else:
+            include=' '
+        if values.head!='': #If there is a head argument
+            head = "|head -n "+values.head #Make head to right format for the stream
+        else:
+            head=''
+        print("Executing command '"+samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+bam_file+' | '+samtools_location+' mpileup \
+        --ff 0 - -f '+values.reference+head+' | cut -f 4  > '+prefix+'_depths.txt\'')
+        os.system(samtools_location+' view '+values.other_args+' -b -F '+values.ignore+include+bed_command+bam_file+' | '+samtools_location+' mpileup \
+        --ff 0 - -f '+values.reference+head+' | cut -f 4  > '+prefix+'_depths.txt')
+        print("Executing command 'sort -n "+prefix+'_depths.txt | uniq -c > '+prefix+'_read_counted_depths.txt\'')
+        os.system("sort -n "+prefix+'_depths.txt | uniq -c > '+prefix+'_read_counted_depths.txt')
+        write_csv_file(values, report, bam_file, sample_id, prefix+'_read_counted_depths.txt', csv_file, fnames, writer)
+    csv_stream.close()
+    plot_cdf_function(csv_file, values)
+    if not values.keep_temp_files:
+        os.system("rm "+prefix+'_depths.txt')
+        os.system("rm "+prefix+'_read_counted_depths.txt')
+        os.system("rm "+csv_file)
 
 def get_file_from_path(file):
     """Separates file name from the whole file path based on the last '/' character."""
@@ -948,6 +1007,8 @@ def remove_directories(values):
         os.system("rm -r "+values.destination+'/generated_vcf')
     if os.path.isdir(values.destination+'/ref_vcf_anno'):
         os.system("rm -r "+values.destination+'/ref_vcf_anno')
+    if hasattr(values, "bed"):
+        os.system("rm "+values.bed)
 
 def get_all_bam_files(directory):
     """Searches all bam files from the given directory and returns list of them."""
@@ -993,8 +1054,6 @@ def check_optparsing(optparser,values):
             optparser.error("Do not give VCF files if you want to skip permutation.")
         for file in values.vcf_file.split():
             assert os.path.isfile(file), "Could not find file "+file+" from directory"+os.getcwd()+'.\n'
-    assert not (not values.skip_perm and values.no_vcf_generate), "If you want to permutate VCF files, do not give parameter \"--no_vcf_generate\", since generated VCF files are needed for permutation. "
-    "If you want to permutate VCF files, leave parameter \"--skip_perm\" out."
     if len(values.bam)>1: #There are multiple files
         values.bam_amount=2 #Argument so R program knows later how to plot the results
     else: #Only 1 file was given
@@ -1004,6 +1063,10 @@ def check_optparsing(optparser,values):
             os.mkdir(values.destination+'/'+"mutation_load_permutations")
         except FileExistsError:
             pass
+    values.plot_intervals=values.plot_intervals.split(',')
+    for index, interval in enumerate(values.plot_intervals):
+        values.plot_intervals[index]=interval.strip()
+        assert interval.isnumeric(), "Interval "+interval+" was not numeric. Give intervals separated by dots (\"int1,int2,int3\")"
     values.destination=values.destination+'/'+"mutation_load_permutations"
     return values
 
@@ -1027,7 +1090,6 @@ def optparsing():
     group.add_option("--destination", dest="destination", help="Destination for cdf file, report, permutations etc. (--destination /path/to/directory).")
     group.add_option("--plot_cdf", dest="plot_cdf", action="store_true", default=False, help="If you do not want CDF plot of read depths. Default: %default.")
     group.add_option("--lbuffer", dest="lbuffer", default=821600, type="int", help="Maximum number of lines per generated vcf_file to save memory. Default is %default, which takes 3G memory with ANNOVAR.")
-    group.add_option("--no_vcf_generate", dest="no_vcf_generate", action="store_true", default=False, help="If you do not want to generate VCF with all possible mutations. They are needed in permutation. Default: %default.")
     group.add_option("--keep_temp_files", dest="keep_temp_files",action="store_true", default=False, help="If you want to keep temporal anno files, generated VCF and temporal mutation files for debugging. Set True, if you have parallel runs to the same destination. Default: %default.")
     optparser.add_option_group(group)
 
@@ -1057,7 +1119,7 @@ def optparsing():
     group.add_option("--rev_limit", dest="rev_limit", default=3, type="int", help="Minimum reverse depth for coverages and permutation files, default: %default.")
     group.add_option("--for_limit", dest="for_limit", default=3, type="int", help="Minimum forward depth for coverages and permutation files, default: %default.")
     group.add_option("--reference", dest="reference", default='/csc/mustjoki2/bioinformatics/gatk/reference_data/GRCh38/GRCh38.p12/fasta/Homo_sapiens.GRCh38.dna.primary_assembly.fa', help="Reference fasta file (--reference /path/to/reference). Default: %default.") #/fs/vault/pipelines/gatk/data/homo_sapiens_v94/Homo_sapiens.GRCh38.dna.primary_assembly.fa
-    group.add_option("-L", "--bed_file", dest="bed", default='', help="If you want to limit area to certain certain region with bedfile, write -L BEDFILE.")
+    group.add_option("-L", "--bed_file", dest="orig_bed", default='', help="If you want to limit area to certain certain region with bedfile, write -L BEDFILE.")
     group.add_option("--flank_upstream", dest="flank_upstream", default=0, type="int", help="How much you want to expand BED file coordinates to upstream. Default: %default.")
     group.add_option("--flank_downstream", dest="flank_downstream", default=0, type="int", help="How much you want to expand BED file coordinates to downstream. Default: %default.")
     group.add_option("-F", dest="ignore", default='0', help="Bit flags you want to ignore.")
@@ -1069,6 +1131,7 @@ def optparsing():
     group = optparse.OptionGroup(optparser, "CDF options",
                     "With these options you can decide information you want from CDF part")
     group.add_option("-p", "--percent_interval", dest="percent_interval", type="int", default=5, help="Percent with what distance the CDF-function will be at least printed, default: %default. For example '-p 5'.")
+    group.add_option("--plot_intervals", dest="plot_intervals", default="1,5,7,10,20,30,40,50,75,100,150,200,300,400,500", help="Read depth intervals for the CDF plot.")
     group.add_option("-r", "--reverse", action="store_true", dest="reverse",  default=False, help="If you want to count CDF from largest to smallest, type -r. Default: %default.")
     group.add_option("-n", "--number", dest="number", type="int", help="If you only want to know how many numbers have less reads than given number (or more when compared to -m).")
     group.add_option("-m", "--more", dest="more", default=False, action="store_true", help="If you want to know how many genomic positions have more reads than given number.")
@@ -1102,12 +1165,20 @@ def optparsing():
 def main():
     """Depending on the settings, can prints sample ids, start or continue permutation and removes all temporal directories made for the program."""
     values = optparsing() #Function makes the optparsing
-    if values.get_id_only:
-        find_sample_ids(values)
     if values.cont_perm:
         continue_permutation(values)
     else:
-        start_from_beginning(values)
+        report=make_report(values)
+    if values.get_id_only:
+        find_sample_ids(values)
+    if values.plot_cdf:
+        start_time = time.time()
+        make_cdf_plot(values, report)
+        print("Plotting took "+str(time.time() - start_time)+" seconds") #Prints consumed time
+    if not values.skip_perm:
+        start_time = time.time()
+        start_permutation(values, report)
+        print("Permutation took "+str(time.time() - start_time)+" seconds") #Prints consumed time
     if not values.keep_temp_files:
         remove_directories(values)
 
@@ -1115,4 +1186,4 @@ def main():
 if __name__=='__main__':
     start_time = time.time()
     main()
-    print ("Program took "+str(time.time() - start_time)+" seconds") #Prints consumed time
+    print("Program took "+str(time.time() - start_time)+" seconds") #Prints consumed time
